@@ -133,9 +133,15 @@ Tech stack: TypeScript, Node.js 22, Fastify, better-sqlite3, Vercel AI SDK, Reac
 
 ## Contributing
 
-1. Read `CLAUDE.md` for coding standards and architecture rules.
-2. Run `pnpm test` before submitting changes.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request. Use the structured GitHub forms, report vulnerabilities privately, and never attach credentials or private data.
+
+1. Read `AGENTS.md`, `CLAUDE.md`, and `docs/CONSTITUTION.md` for repository rules.
+2. Run relevant tests and `pnpm verify:public-export` before submitting changes.
 3. Commit convention: `feat:` / `fix:` / `refactor:` / `docs:` / `test:` / `chore:`.
+
+## Releases
+
+GitHub Actions are intentionally disabled. Releases are built and verified locally, then uploaded to [GitHub Releases](https://github.com/spytensor/OpenMozi/releases) with DMG, ZIP, SHA-256 checksums, and a release manifest. See [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Acknowledgments
 

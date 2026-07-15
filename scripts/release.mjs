@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const SEMVER_REGEX = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -22,6 +22,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     stdio: options.stdio ?? 'inherit',
     encoding: 'utf-8',
+    env: options.env ?? process.env,
   });
   if (result.status !== 0) {
     const rendered = [command, ...args].join(' ');
@@ -46,6 +47,9 @@ function parseArgs(argv) {
     tag: false,
     push: false,
     release: false,
+    macAssets: false,
+    unsigned: false,
+    channel: 'stable',
     all: false,
   };
 
@@ -86,6 +90,22 @@ function parseArgs(argv) {
       options.release = true;
       continue;
     }
+    if (arg === '--mac-assets') {
+      options.macAssets = true;
+      continue;
+    }
+    if (arg === '--unsigned') {
+      options.unsigned = true;
+      continue;
+    }
+    if (arg === '--channel') {
+      options.channel = argv[++i] ?? '';
+      continue;
+    }
+    if (arg.startsWith('--channel=')) {
+      options.channel = arg.slice('--channel='.length);
+      continue;
+    }
     if (arg === '--all') {
       options.all = true;
       continue;
@@ -102,7 +122,13 @@ function parseArgs(argv) {
     options.tag = true;
     options.push = true;
     options.release = true;
+    options.macAssets = true;
   }
+
+  if (options.release) options.macAssets = true;
+  if (options.unsigned && !options.macAssets) fail('--unsigned requires --mac-assets or --release');
+  if (!['stable', 'beta'].includes(options.channel)) fail('--channel must be stable or beta');
+  if (options.unsigned) options.channel = 'beta';
 
   return options;
 }
@@ -115,7 +141,7 @@ function printHelp() {
     '  node scripts/release.mjs --version 1.0.1',
     '  node scripts/release.mjs --bump patch',
     '  node scripts/release.mjs --version 1.0.1 --commit --tag',
-    '  node scripts/release.mjs --version 1.0.1 --all',
+    '  node scripts/release.mjs --version 1.0.1 --all --unsigned',
     '',
     'Flags:',
     '  --version <semver>   Explicit target version (e.g. 1.0.0)',
@@ -123,8 +149,11 @@ function printHelp() {
     '  --commit             Create a release commit',
     '  --tag                Create annotated git tag v<version>',
     '  --push               Push commit and tag to origin',
-    '  --release            Create GitHub Release via gh CLI',
-    '  --all                Equivalent to --commit --tag --push --release',
+    '  --release            Create a GitHub Release with verified macOS assets',
+    '  --mac-assets         Build DMG + ZIP, run packaged smoke, and create checksummed evidence',
+    '  --unsigned           Explicitly publish an unsigned prerelease (never presented as stable)',
+    '  --channel <name>     stable | beta (default: stable)',
+    '  --all                Commit, build/verify assets, tag, push, and publish the GitHub Release',
   ].join('\n'));
 }
 
@@ -317,8 +346,142 @@ function tagExistsLocally(tagName) {
   return result.status === 0;
 }
 
+function commandAvailable(command, args = ['--version']) {
+  return spawnSync(command, args, { stdio: 'ignore', env: process.env }).status === 0;
+}
+
+function findDirectoryNamed(root, name) {
+  if (!existsSync(root)) return '';
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory() && entry.name === name) return path;
+    if (entry.isDirectory()) {
+      const nested = findDirectoryNamed(path, name);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+function macDistributionArtifacts(distPath) {
+  if (!existsSync(distPath)) return [];
+  return readdirSync(distPath)
+    .filter((name) => /\.(?:dmg|zip)$/i.test(name))
+    .map((name) => join(distPath, name))
+    .sort();
+}
+
+function ensureMacReleasePreflight(options) {
+  if (!options.macAssets) return;
+  if (process.platform !== 'darwin') fail('macOS release assets must be built and verified on macOS');
+  if (!options.commit) fail('--mac-assets requires --commit so build identity points at an immutable release commit');
+  if (options.release && (!options.tag || !options.push)) {
+    fail('--release requires --tag and --push so GitHub assets cannot be detached from source identity');
+  }
+
+  const status = run('git', ['status', '--porcelain'], { stdio: 'pipe' }).trim();
+  if (status) fail('macOS release requires a clean worktree before version changes');
+
+  const gitleaks = process.env.MOZI_GITLEAKS_BIN || 'gitleaks';
+  if (!commandAvailable(gitleaks)) {
+    fail('Gitleaks is required for release publication. Install it or set MOZI_GITLEAKS_BIN.');
+  }
+  if (options.release && (!commandAvailable('gh') || spawnSync('gh', ['auth', 'status'], { stdio: 'ignore' }).status !== 0)) {
+    fail('Authenticated GitHub CLI is required to publish a Release');
+  }
+
+  if (!options.unsigned) {
+    const required = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'];
+    const missing = required.filter((name) => !process.env[name]);
+    if (missing.length > 0) {
+      fail(`Signed release requires Apple credentials (${missing.join(', ')}). Use --unsigned only for an explicitly labeled prerelease.`);
+    }
+  }
+}
+
+function notarizeArtifacts(artifacts) {
+  for (const artifact of artifacts) {
+    run('xcrun', [
+      'notarytool', 'submit', artifact,
+      '--apple-id', process.env.APPLE_ID,
+      '--password', process.env.APPLE_APP_SPECIFIC_PASSWORD,
+      '--team-id', process.env.APPLE_TEAM_ID,
+      '--wait',
+    ]);
+  }
+  for (const dmg of artifacts.filter((path) => path.toLowerCase().endsWith('.dmg'))) {
+    run('xcrun', ['stapler', 'staple', dmg]);
+    run('xcrun', ['stapler', 'validate', dmg]);
+  }
+}
+
+function buildMacReleaseAssets(version, channel, unsigned) {
+  const commit = run('git', ['rev-parse', 'HEAD'], { stdio: 'pipe' }).trim();
+  const distPath = resolve(ROOT, 'desktop', 'dist');
+  rmSync(distPath, { recursive: true, force: true });
+
+  run('pnpm', ['verify:public-export']);
+  const gitleaks = process.env.MOZI_GITLEAKS_BIN || 'gitleaks';
+  run(gitleaks, ['dir', '.', '--no-banner', '--redact', '--exit-code', '1']);
+
+  const buildEnv = {
+    ...process.env,
+    MOZI_BUILD_VERSION: version,
+    MOZI_BUILD_COMMIT: commit,
+    MOZI_BUILD_TIME: new Date().toISOString(),
+    MOZI_RELEASE_CHANNEL: channel,
+    ...(unsigned ? { CSC_IDENTITY_AUTO_DISCOVERY: 'false' } : {}),
+  };
+  run('pnpm', ['desktop:dist:mac'], { env: buildEnv });
+
+  const appPath = findDirectoryNamed(distPath, 'MOZI.app');
+  if (!appPath) fail('desktop:dist:mac did not produce MOZI.app');
+  run('pnpm', ['desktop:test:packaged', '--', '--app', appPath]);
+
+  const artifacts = macDistributionArtifacts(distPath);
+  if (!artifacts.some((path) => path.endsWith('.dmg')) || !artifacts.some((path) => path.endsWith('.zip'))) {
+    fail('desktop:dist:mac must produce both DMG and ZIP artifacts');
+  }
+  if (!unsigned) notarizeArtifacts(artifacts);
+
+  const manifestPath = join(distPath, `OpenMozi-${version}-${channel}-manifest.json`);
+  const manifestArgs = [
+    'scripts/release-supply-chain.mjs',
+    '--version', version,
+    '--commit', commit,
+    '--channel', channel,
+    '--dist', 'desktop/dist',
+    '--out', manifestPath,
+    ...(!unsigned ? ['--require-signed', '--require-notarized'] : []),
+  ];
+  run(process.execPath, manifestArgs);
+
+  const manifest = readJson(manifestPath);
+  const releaseArtifacts = manifest.artifacts ?? [];
+  const checksumPath = join(distPath, `OpenMozi-${version}-SHA256SUMS.txt`);
+  writeFileSync(
+    checksumPath,
+    `${releaseArtifacts.map((artifact) => `${artifact.sha256}  ${artifact.name}`).join('\n')}\n`,
+    'utf-8',
+  );
+
+  const notesPath = join(distPath, `OpenMozi-${version}-release-notes.md`);
+  const trustNotice = unsigned
+    ? '> **Unsigned macOS prerelease:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing.\n\n'
+    : '> **Verified macOS release:** the manifest records Developer ID signing and Apple notarization evidence.\n\n';
+  writeFileSync(notesPath, `${trustNotice}${extractReleaseNotes(version)}\n`, 'utf-8');
+
+  return {
+    assets: [...artifacts, manifestPath, checksumPath],
+    notesPath,
+    prerelease: unsigned || channel === 'beta',
+    title: unsigned ? `v${version} (unsigned macOS prerelease)` : `v${version}`,
+  };
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
+  ensureMacReleasePreflight(options);
   const version = resolveVersion(options);
   ensureSemver(version);
   const tagName = `v${version}`;
@@ -400,6 +563,13 @@ function main() {
     }
   }
 
+  let macRelease = null;
+  if (options.macAssets) {
+    const trackedStatus = run('git', ['status', '--porcelain', '--untracked-files=no'], { stdio: 'pipe' }).trim();
+    if (trackedStatus) fail('Release commit did not leave a clean tracked worktree');
+    macRelease = buildMacReleaseAssets(version, options.channel, options.unsigned);
+  }
+
   if (options.tag) {
     if (tagExistsLocally(tagName)) {
       fail(`Tag already exists locally: ${tagName}`);
@@ -415,8 +585,16 @@ function main() {
   }
 
   if (options.release) {
-    const notes = extractReleaseNotes(version);
-    run('gh', ['release', 'create', tagName, '--title', tagName, '--notes', notes]);
+    if (!macRelease) fail('GitHub Release requires verified macOS assets');
+    const releaseArgs = [
+      'release', 'create', tagName,
+      ...macRelease.assets,
+      '--title', macRelease.title,
+      '--notes-file', macRelease.notesPath,
+      '--verify-tag',
+      ...(macRelease.prerelease ? ['--prerelease'] : []),
+    ];
+    run('gh', releaseArgs);
   }
 
   console.log(`[release] completed: ${tagName}`);

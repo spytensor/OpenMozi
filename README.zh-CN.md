@@ -133,9 +133,15 @@ desktop/         # Electron 壳 + 打包
 
 ## 参与贡献
 
-1. 先读 `CLAUDE.md` 了解编码规范与架构规则。
-2. 提交前跑 `pnpm test`。
+提交 Issue 或 PR 前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。请使用结构化 GitHub 表单，安全漏洞必须私下报告，禁止附带凭据或私人数据。
+
+1. 先读 `AGENTS.md`、`CLAUDE.md` 和 `docs/CONSTITUTION.md` 了解仓库规则。
+2. 提交前运行相关测试和 `pnpm verify:public-export`。
 3. 提交信息约定：`feat:` / `fix:` / `refactor:` / `docs:` / `test:` / `chore:`。
+
+## Release
+
+GitHub Actions 有意保持关闭。Release 在本地完成构建和验证，再将 DMG、ZIP、SHA-256 校验文件及发布清单上传到 [GitHub Releases](https://github.com/spytensor/OpenMozi/releases)。详见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 致谢
 

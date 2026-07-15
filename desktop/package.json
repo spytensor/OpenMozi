@@ -10,7 +10,7 @@
     "build": "tsup src/main.ts --no-config --format esm --platform=node --target=node22 --out-dir build --clean --external electron && tsup src/preload.ts --no-config --format cjs --platform=node --target=node22 --out-dir build --external electron",
     "dev": "pnpm build && electron .",
     "pack:mac": "pnpm build && electron-builder --mac --dir",
-    "dist:mac": "pnpm build && electron-builder --mac dmg"
+    "dist:mac": "pnpm build && electron-builder --mac dmg zip"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",

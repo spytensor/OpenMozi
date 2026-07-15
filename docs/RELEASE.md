@@ -1,6 +1,6 @@
 # Release Process
 
-MOZI uses a single release script to keep version updates consistent across the repo.
+OpenMozi releases are built and verified on a local macOS machine. GitHub is used only for source tags, the Release page, and artifact hosting. GitHub Actions are intentionally disabled and are not part of the release path.
 
 ## Commands
 
@@ -13,7 +13,10 @@ pnpm version:bump -- --bump patch
 pnpm version:bump -- --bump minor
 pnpm version:bump -- --bump major
 
-# One-click release (version update + commit + tag + push + GitHub Release)
+# One-click unsigned prerelease (explicitly labeled; never promoted as stable)
+pnpm release:cut -- --version 2.0.1 --unsigned
+
+# Signed and notarized release (requires the Apple credentials below)
 pnpm release:cut -- --version 2.0.1
 ```
 
@@ -25,6 +28,16 @@ pnpm release:cut -- --version 2.0.1
 - `README.md` top version badge
 - `CHANGELOG.md` (creates or prepends current release entry)
 
+## Required local tools
+
+- macOS on the target architecture
+- Node 22 and pnpm
+- authenticated GitHub CLI (`gh auth status`)
+- Gitleaks in `PATH`, or `MOZI_GITLEAKS_BIN` pointing to a verified binary
+- Apple Developer credentials for a signed release
+
+The release command requires a clean worktree before it changes versions. Run it from an OpenMozi checkout whose `origin` is the public repository.
+
 ## Required Release Gates
 
 Before cutting a release, the branch must pass:
@@ -32,6 +45,11 @@ Before cutting a release, the branch must pass:
 - `pnpm build`
 - `pnpm verify:prompt-contract`
 - `pnpm verify:complex-task-gate`
+- `pnpm verify:public-export`
+- Gitleaks current-tree scan
+- DMG and ZIP build
+- packaged macOS smoke matrix
+- release manifest and SHA-256 generation
 - the real complex-task release gate documented in [COMPLEX-TASK-RELEASE-GATE.md](COMPLEX-TASK-RELEASE-GATE.md)
 
 Do not ship a release if MOZI cannot complete at least one real complex task end-to-end on the current build.
@@ -60,11 +78,46 @@ Routine runtime upgrades should not require re-running onboarding. On startup, M
 - `--commit`: create `chore(release): vX.Y.Z` commit
 - `--tag`: create annotated git tag `vX.Y.Z`
 - `--push`: push commit and tag to `origin`
-- `--release`: create GitHub release via `gh`
-- `--all`: equivalent to `--commit --tag --push --release`
+- `--release`: create a GitHub Release containing verified macOS assets; it implies `--mac-assets`
+- `--mac-assets`: build DMG and ZIP, run packaged smoke, and generate checksummed evidence
+- `--unsigned`: disable signing discovery and publish only as an explicitly labeled prerelease
+- `--channel stable|beta`: record the release channel in build identity and the manifest
+- `--all`: commit, build/verify assets, tag, push, and publish the GitHub Release
 
-## Example Stable Release
+`--release` refuses to run without a release commit, tag, push, and verified assets. Empty GitHub Releases are not supported.
+
+## Unsigned prerelease
 
 ```bash
+brew install gitleaks gh
+gh auth login
+pnpm release:cut -- --version 2.0.1 --unsigned
+```
+
+Unsigned builds are forced to the `beta` channel, GitHub prerelease status, and the title `unsigned macOS prerelease`. They must not be described as signed, notarized, or production-ready.
+
+## Signed and notarized release
+
+Set all required credentials before running the same command without `--unsigned`:
+
+```bash
+export CSC_LINK=/secure/path/DeveloperIDApplication.p12
+export CSC_KEY_PASSWORD='...'
+export APPLE_ID='...'
+export APPLE_APP_SPECIFIC_PASSWORD='...'
+export APPLE_TEAM_ID='...'
 pnpm release:cut -- --version 2.0.1
 ```
+
+The signed path fails closed unless the packaged app has a valid `Developer ID Application` authority and the DMG passes Apple stapler validation.
+
+## GitHub Release assets
+
+Every created Release contains:
+
+- `MOZI-<version>-arm64.dmg`
+- `MOZI-<version>-arm64-mac.zip`
+- `OpenMozi-<version>-<channel>-manifest.json`
+- `OpenMozi-<version>-SHA256SUMS.txt`
+
+The manifest records source commit, build identity, package versions, artifact sizes and hashes, Developer ID status, notarization status, and explicit blockers. GitHub stores these files but does not build them.

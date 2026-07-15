@@ -283,14 +283,22 @@ function succeeds(command, args) {
 }
 
 function verifyMacSigning(appBundles, requireSigned) {
-  if (appBundles.length === 0) return { checked: false, signed: false };
+  if (appBundles.length === 0) return { checked: false, signed: false, identities: [] };
   if (process.platform !== 'darwin') {
     if (requireSigned) fail('macOS signing verification requires a macOS runner');
-    return { checked: false, signed: false };
+    return { checked: false, signed: false, identities: [] };
   }
-  const signed = appBundles.every((appPath) => succeeds('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath]));
-  if (requireSigned && !signed) fail('macOS app bundle is not validly code signed');
-  return { checked: true, signed };
+  const identities = [];
+  const signed = appBundles.every((appPath) => {
+    if (!succeeds('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath])) return false;
+    const details = run('codesign', ['-dv', '--verbose=4', appPath]);
+    const output = `${details.stdout ?? ''}\n${details.stderr ?? ''}`;
+    const authority = output.match(/^Authority=(Developer ID Application: .+)$/m)?.[1] ?? '';
+    identities.push(authority);
+    return details.status === 0 && authority.length > 0;
+  });
+  if (requireSigned && !signed) fail('macOS app bundle is not signed with a valid Developer ID Application identity');
+  return { checked: true, signed, identities };
 }
 
 function verifyMacNotarization(artifacts, requireNotarized) {
@@ -376,6 +384,7 @@ function main() {
       app_bundles: appBundles.map((path) => relative(ROOT, path)),
       signing_checked: signing.checked,
       signed: signing.signed,
+      signing_identities: signing.identities,
       notarization_checked: notarization.checked,
       notarized: notarization.notarized,
     },

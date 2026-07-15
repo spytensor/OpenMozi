@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- GitHub Releases are now produced by a fail-closed local macOS workflow: the release helper builds both DMG and ZIP artifacts, runs the packaged smoke matrix, records Developer ID and notarization truth, generates SHA-256 and manifest evidence, and uploads real assets through `gh`. Unsigned builds require explicit opt-in and are forced to prerelease status; empty Release pages are rejected.
 - Public OpenMozi exports now fail closed on tracked runtime data, owner paths, private project names, and private-repository links; README screenshots are reproducible isolated Dark-mode EN/ZH demos, package metadata consistently declares MIT, and the macOS bundle carries the MIT license plus explicit CodeSandbox Nodebox Sustainable Use License notices.
 - Explicit HTML, SVG, React, and JavaScript requests now retain `create_artifact` even when a turn is classified as simple, require the exact requested content type through the Brain repair contract, and normalize unambiguous standalone HTML/SVG signatures before persistence. Web/App rendering also recognizes historical HTML that was incorrectly stored as a Markdown document, restoring an HTML preview, icon, label, and `.html` download without rewriting user data.
 - Memory recall now treats SQLite facts as the source of truth and uses deterministic local full-text search for small collections; real provider embeddings activate only after the configured size threshold, carry provider/model/dimension index fingerprints, and rebuild safely when the embedding space changes. The Settings picker exposes only verified embedding families, while OpenAI turns keep stable core memory ahead of append-only history, move volatile recall behind it, and attach a stable prompt-cache key with cache-read/write telemetry and pricing.
@@ -26,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added structured Bug, Feature, and Documentation Issue forms, a private security-report route, PR template, contribution guide, support policy, and Contributor Covenant for the public OpenMozi community.
 - Added Settings → About MOZI for the shared Web/App UI, including runtime and Desktop shell versions, source commit, release channel, product surface, surface-specific update guidance, and an explicit shell/runtime mismatch warning.
 - Added a production macOS icon derived from the existing web `墨` mark, including a reproducible 1024px master-to-iconset/ICNS generator and Electron Builder wiring for app, Finder, Dock, ZIP, and DMG packaging.
 - Added the runtime-enforced verifier-first completion gate: the Brain now tracks file, git, test, and artifact evidence by tool batch, withholds unverified streaming claims, injects structured repair feedback, and records real verifier status in turn traces and prompt snapshots.

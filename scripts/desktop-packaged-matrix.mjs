@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
+import { assertExpectedRuntimeOwner, readRuntimeLogOrPlaceholder } from './desktop-packaged-matrix-utils.mjs';
 
 const appBinary = resolve('desktop/dist/mac-arm64/MOZI.app/Contents/MacOS/MOZI');
 const outputDir = resolve('output/desktop-matrix');
@@ -155,13 +156,15 @@ async function waitForHealth() {
       const response = await fetch(`${baseUrl}/api/health`);
       if (response.ok) {
         const health = await response.json();
-        if (health.mozi_home === home) return;
-        throw new Error(`port owned by ${health.mozi_home}`);
+        assertExpectedRuntimeOwner(health, home);
+        return;
       }
-    } catch {}
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('port already owned by ')) throw error;
+    }
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
-  throw new Error(`Timed out waiting for packaged health; log=${readFileSync(join(home, 'logs/runtime.log'), 'utf8')}`);
+  throw new Error(`Timed out waiting for packaged health; log=${readRuntimeLogOrPlaceholder(join(home, 'logs/runtime.log'))}`);
 }
 
 async function connectCdp() {
