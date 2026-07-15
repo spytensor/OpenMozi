@@ -77,6 +77,11 @@ describe('release supply-chain verifier', () => {
     ]));
     expect((manifest.macos as { signed: boolean; signing_identities: string[] }).signed).toBe(false);
     expect((manifest.macos as { signed: boolean; signing_identities: string[] }).signing_identities).toEqual([]);
+    expect((manifest.macos as { publishable: boolean }).publishable).toBe(false);
+    expect((manifest.macos as { release_blockers: string[] }).release_blockers).toEqual(expect.arrayContaining([
+      'macos_app_not_signed',
+      'macos_dmg_not_notarized',
+    ]));
 
     const artifacts = manifest.artifacts as Array<{ kind: string; sha256: string; sha512: string }>;
     expect(artifacts.map(artifact => artifact.kind).sort()).toEqual(['macos_dmg', 'macos_zip']);

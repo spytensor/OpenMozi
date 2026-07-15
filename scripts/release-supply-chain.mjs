@@ -325,12 +325,17 @@ function verifyDocker(options) {
     : null;
 }
 
-function releaseBlockers({ artifacts, signing, notarization, docker }) {
+function macReleaseBlockers({ artifacts, signing, notarization }) {
   const blockers = [];
   if (!artifacts.some((artifact) => artifact.kind === 'macos_dmg')) blockers.push('missing_macos_dmg');
   if (!artifacts.some((artifact) => artifact.kind === 'macos_zip')) blockers.push('missing_macos_zip');
   if (!signing.signed) blockers.push('macos_app_not_signed');
   if (!notarization.notarized) blockers.push('macos_dmg_not_notarized');
+  return blockers;
+}
+
+function releaseBlockers({ macos, docker }) {
+  const blockers = [...macos];
   if (!docker?.digest) blockers.push('missing_docker_digest');
   return blockers;
 }
@@ -358,7 +363,8 @@ function main() {
   const signing = verifyMacSigning(appBundles, options.requireSigned);
   const notarization = verifyMacNotarization(artifacts, options.requireNotarized);
   const docker = verifyDocker(options);
-  const blockers = releaseBlockers({ artifacts, signing, notarization, docker });
+  const macosBlockers = macReleaseBlockers({ artifacts, signing, notarization });
+  const blockers = releaseBlockers({ macos: macosBlockers, docker });
   const publishable = blockers.length === 0;
 
   if (options.publishable && !publishable) {
@@ -387,6 +393,8 @@ function main() {
       signing_identities: signing.identities,
       notarization_checked: notarization.checked,
       notarized: notarization.notarized,
+      publishable: macosBlockers.length === 0,
+      release_blockers: macosBlockers,
     },
     publishable,
     release_blockers: blockers,
