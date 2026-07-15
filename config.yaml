@@ -1,0 +1,65 @@
+system:
+  max_parallel_agents: 5
+  watchdog_interval_seconds: 5
+  heartbeat_timeout_seconds: 15
+
+brain:
+  model: "MiniMax-M2.5"
+  fallback_model: "claude-opus-4"
+  max_dag_depth: 5
+
+model_router:
+  brain_provider: "minimax"
+
+token_budget:
+  watermark_soft: 0.70
+  watermark_hard: 0.85
+  watermark_rotate: 0.95
+  running_summary_cap_tokens: 2000
+  subagent_startup_budget_pct: 0.10
+
+tel:
+  tools:
+    shell:
+      timeout: 60
+      soft_timeout: 30
+      retries: 1
+      sandbox: "restricted"
+    playwright:
+      timeout: 120
+      soft_timeout: 60
+      retries: 2
+      sandbox: "docker"
+      fallback: "screenshot_and_report"
+
+evolution:
+  promote_min_spawns: 5
+  promote_min_score: 0.8
+  archive_inactive_days: 30
+  demote_min_tasks: 10
+  demote_score_threshold: 0.5
+
+rate_limits:
+  anthropic:
+    rpm: 50
+    tpm: 400000
+    concurrent: 10
+  openai:
+    rpm: 60
+    tpm: 600000
+    concurrent: 20
+
+security:
+  default_permission: "L0_READ_ONLY"
+  hard_gates:
+    - skill_register
+    - agent_promote
+    - l3_grant
+    - external_comm
+
+telegram:
+  bot_token: ""
+
+server:
+  host: "0.0.0.0"
+  port: 3000
